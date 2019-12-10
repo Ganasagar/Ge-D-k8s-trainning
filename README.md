@@ -1,2 +1,1 @@
-This is a Place holder 
-
+Ge Digital k8s workshop
