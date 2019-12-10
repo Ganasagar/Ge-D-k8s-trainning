@@ -1,4 +1,4 @@
-# Kubernetes Trainning
+# Kubernetes Training
 
 ## Introduction
 
