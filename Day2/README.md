@@ -6,11 +6,13 @@ During this training, you'll learn how to deploy Konvoy and to use its main feat
 
 * [Introduction](#introduction)
 * [Prerequisites](#prerequisites)
-* [1. Deploy a Konvoy cluster](#1-deploy-a-konvoy-cluster)
-* [2. Leverage persistent storage using CSI](#5-leverage-persistent-storage-using-csi)
-* [3. Deploy portworx for persistent storage](#1-deploy-portworx)
-* [4. Deploy Jenkins using Helm](#6-deploy-jenkins-using-helm)
-* [5. Deploy Apache Kafka using KUDO](#7-deploy-apache-kafka-using-kudo)
+* [1. Deploy a Konvoy cluster](#deploy-a-konvoy-cluster)
+* [2. StatefulSets](#StatefulSets)
+* [3. Leverage persistent storage using CSI](#leverage-persistent-storage-using-csi)
+* [4. Deploy portworx for persistent storage](#deploy-portworx)
+* [5. Deploy Jenkins using Helm](#deploy-jenkins-using-helm)
+* [6. Deploy Apache Kafka using KUDO](#deploy-apache-kafka-using-kudo)
+* [7. Moniotoring applications using Grafana](#Moniotoring-applications-using-Grafana)
 
 
 ## Prerequisites
@@ -312,8 +314,138 @@ pod=$(kubectl get pods | grep ebs-dynamic-app | awk '{ print $1 }')
 kubectl exec -i $pod cat /data/out.txt
 ```
 
+## 3. StatefulSets
+#### Understanding inner working on a statefulset (sts)
 
-## 3. Portworx
+Create a statefulset that deploys two replicas of an application called Web
+
+```bash
+cat <<EOF | kubectl create -f -
+apiVersion: v1
+kind: Service
+metadata:
+ name: nginx
+ labels:
+   app: nginx
+spec:
+ ports:
+ - port: 80
+   name: web
+ clusterIP: None
+ selector:
+   app: nginx
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+ name: web
+spec:
+ serviceName: "nginx"
+ replicas: 2
+ selector:
+   matchLabels:
+     app: nginx
+ template:
+   metadata:
+     labels:
+       app: nginx
+   spec:
+     containers:
+     - name: nginx
+       image: k8s.gcr.io/nginx-slim:0.8
+       ports:
+       - containerPort: 80
+         name: web
+       volumeMounts:
+       - name: www
+         mountPath: /usr/share/nginx/html
+ volumeClaimTemplates:
+ - metadata:
+     name: www
+   spec:
+     accessModes: [ "ReadWriteOnce" ]
+     resources:
+       requests:
+         storage: 1Gi
+EOF
+```
+Output should be something similar to below 
+```bash
+service/nginx created
+statefulset.apps/web created
+```
+A Stateful application often needs persistent storage that’s specific to each of its nodes. In Kubernetes, storage is provisioned through a Persistent Volume and Persistent Volume Claim that accesses it. The StatefulSet definition guarantees that each Pod has its storage by using the volumeClaimTemplates parameter. The volumeClaimTemplates automatically create a Persistent Volume Claim for each Pod. Let’s have a look. Since we we have storageClass defined earlier the aws based storage class is going to provision PV'f for us. 
+```bash
+kubectl get pvc                                                                                                                                                                     
+NAME        STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   AGE
+www-web-0   Bound    pvc-01c744cc-cbff-11e9-9e03-025000000001   1Gi        RWO            hostpath       51s
+www-web-1   Bound    pvc-1c8e6c2e-cbff-11e9-9e03-025000000001   1Gi        RWO            hostpath       6s
+
+kubectl get pv                                                                                                                                                                      
+NAME                                       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM               STORAGECLASS   REASON   AGE
+pvc-01c744cc-cbff-11e9-9e03-025000000001   1Gi        RWO            Delete           Bound    default/www-web-0   hostpath                49s
+pvc-1c8e6c2e-cbff-11e9-9e03-025000000001   1Gi        RWO            Delete           Bound    default/www-web-1   hostpath                13s
+```
+
+Lets check if they pods get a unique name when provisioned by a stateful set. 
+```bash
+kubectl get pods
+NAME    READY   STATUS    RESTARTS   AGE
+web-0   1/1     Running   0          3h7m
+web-1   1/1     Running   0          3h6m              
+```
+
+How about an IP address ? Since we mentioned that we do not want a cluster IP. The nature headless less services should be direct resolution to actual pods. If we query the pod for the stateful service from pod running in the cluster, you should get a list of the pods running the cluster. 
+
+Create an ephemeral Ubuntu Pod to run our tests:
+```bash
+kubectl run -i --tty ubuntu --image=ubuntu:18.04 --restart=Never -- bash -il
+```
+We’ll need to install dig to issue DNS queries:
+```bash
+root@ubuntu:/# apt update && apt install dnsutils
+```
+Now, let’s test the headless service by issuing a SRV request:
+```bash
+root@ubuntu:/# dig SRV nginx.default.svc.cluster.local
+
+; <<>> DiG 9.11.3-1ubuntu1.8-Ubuntu <<>> SRV nginx.default.svc.cluster.local
+;; global options: +cmd
+;; Got answer:
+;; WARNING: .local is reserved for Multicast DNS
+;; You are currently testing what happens when an mDNS query is leaked to DNS
+;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 41247
+;; flags: qr aa rd; QUERY: 1, ANSWER: 2, AUTHORITY: 0, ADDITIONAL: 3
+;; WARNING: recursion requested but not available
+
+;; OPT PSEUDOSECTION:
+; EDNS: version: 0, flags:; udp: 4096
+; COOKIE: 5c4ff0df2ede50ff (echoed)
+;; QUESTION SECTION:
+;nginx.default.svc.cluster.local. IN	SRV
+
+;; ANSWER SECTION:
+nginx.default.svc.cluster.local. 5 IN	SRV	0 50 80 web-0.nginx.default.svc.cluster.local.
+nginx.default.svc.cluster.local. 5 IN	SRV	0 50 80 web-1.nginx.default.svc.cluster.local.
+
+;; ADDITIONAL SECTION:
+web-0.nginx.default.svc.cluster.local. 5 IN A	10.1.2.192
+web-1.nginx.default.svc.cluster.local. 5 IN A	10.1.2.193
+
+;; Query time: 0 msec
+;; SERVER: 10.96.0.10#53(10.96.0.10)
+;; WHEN: Sat Aug 31 18:30:42 UTC 2019
+;; MSG SIZE  rcvd: 354
+```
+Clean up
+```bash
+kubectl delete sts web
+kubectl delete svc nginx 
+```
+
+
+
+## 4. Portworx
 #### Leverage persistent storage using Portworx
 
 Portworx is a Software Defined Software that can use the local storage of the DC/OS nodes to provide High Available persistent storage to both Kubernetes pods and DC/OS services.
@@ -532,7 +664,7 @@ kubectl exec -i pvpod cat /test-portworx-volume/test
 
 
 
-## 4. Deploy Jenkins using Helm
+## 5. Deploy Jenkins using Helm
 
 Helm is a tool for managing Kubernetes charts. Charts are packages of pre-configured Kubernetes resources.
 
@@ -629,7 +761,7 @@ Delete the Jenkins Deployment using Helm
 helm delete jenkins --purge
 ```
 
-## 5. Deploy Apache Kafka using KUDO
+## 6. Deploy Apache Kafka using KUDO
 
 The Kubernetes Universal Declarative Operator (KUDO) is a highly productive toolkit for writing operators for Kubernetes. Using KUDO, you can deploy your applications, give your users the tools they need to operate it, and understand how it's behaving in their environments — all without a PhD in Kubernetes.
 
@@ -1061,7 +1193,7 @@ kafka-kafka-4                          1/1     Running   0          3m15s
 kudo-kafka-consumer-6b4dd5cd59-r7svb   1/1     Running   0          33m
 kudo-kafka-generator-d655d6dff-5pztl   1/1     Running   0          33m
 ```
-## 6. Monitoring 
+## 7. Monitoring 
 
 
 In Konvoy, all the metrics are stored in a Prometheus cluster and exposed through Grafana.
