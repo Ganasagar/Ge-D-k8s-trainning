@@ -1,4 +1,4 @@
-# Konvoy training
+# Kubernetes Trainning
 
 ## Introduction
 
