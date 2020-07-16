@@ -11,9 +11,9 @@ During this training, you'll learn how to deploy Konvoy and to use its main feat
 * [3. Expose a Kubernetes Application using an Ingress (L7)](#3-expose-a-kubernetes-application-using-an-ingress-l7)
 * [4. Routing an application using paths](#4)
 * [5. Leverage Network Policies to restrict access](#5-leverage-network-policies-to-restrict-access)
-* [5. Deploy Istio on Konvoy](#5-Deploy-Istio-on-Konvoy)
-* [6. Deploy Bookinfo Application](#6-Deploy-Bookinfo-Application)
-* [7. Istio-Traffic-Management](#7-Istio-traffic-management)
+* [6. Deploy Istio on Konvoy](#5-Deploy-Istio-on-Konvoy)
+* [7. Deploy Bookinfo Application](#6-Deploy-Bookinfo-Application)
+* [8. Istio-Traffic-Management](#7-Istio-traffic-management)
 
 
 ## Prerequisites
@@ -537,7 +537,7 @@ spec:
 EOF
 ```
 
-# 5. Deploy Istio using Konvoy
+# 6. Deploy Istio using Konvoy
 
 Cloud platforms provide a wealth of benefits for the organizations that use them.
 There’s no denying, however, that adopting the cloud can put strains on DevOps teams.
@@ -640,7 +640,7 @@ NAME                                                   CDS        LDS        EDS
 istio-ingressgateway-6db99c76dc-zqb2s.istio-system     SYNCED     SYNCED     SYNCED     NOT SENT     istio-pilot-7684976f67-vxgbc     1.3.3
 ```
 
-## 6. Deploy Bookinfo Application 
+## 7. Deploy Bookinfo Application 
 
 ```
 This example deploys a sample application composed of four separate microservices used to demonstrate various Istio features.
