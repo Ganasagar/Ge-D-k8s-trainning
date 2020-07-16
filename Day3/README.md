@@ -9,7 +9,8 @@ During this training, you'll learn how to deploy Konvoy and to use its main feat
 * [1. Do a Health check the k8s cluster](#1-deploy-a-konvoy-cluster)
 * [2. Expose a Kubernetes Application using a Service Type Load Balancer (L4)](#2-expose-a-kubernetes-application-using-a-service-type-load-balancer-l4)
 * [3. Expose a Kubernetes Application using an Ingress (L7)](#3-expose-a-kubernetes-application-using-an-ingress-l7)
-* [4. Leverage Network Policies to restrict access](#4-leverage-network-policies-to-restrict-access)
+* [4. Routing an application using paths](#4)
+* [5. Leverage Network Policies to restrict access](#5-leverage-network-policies-to-restrict-access)
 * [5. Deploy Istio on Konvoy](#5-Deploy-Istio-on-Konvoy)
 * [6. Deploy Bookinfo Application](#6-Deploy-Bookinfo-Application)
 * [7. Istio-Traffic-Management](#7-Istio-traffic-management)
@@ -317,7 +318,114 @@ curl -k -H "Host: http-echo-2.com" https://$(kubectl get svc traefik-kubeaddons 
 
 You can also set some Traefik annotations to use some advanced features as described in this [document](https://docs.traefik.io/providers/kubernetes-crd/).
 
-## 4. Leverage Network Policies to restrict access
+## 4. Route an application using path based routing and CLI ingress test
+
+1. Create sample apple app an expose it as internal service
+```bash
+cat <<EOF | kubectl create -f -
+kind: Pod
+apiVersion: v1
+metadata:
+  name: apple-app
+  labels:
+    app: apple
+spec:
+  containers:
+    - name: apple-app
+      image: hashicorp/http-echo
+      args:
+        - "-text=apple"
+
+---
+
+kind: Service
+apiVersion: v1
+metadata:
+  name: apple-service
+spec:
+  selector:
+    app: apple
+  ports:
+    - port: 5678 # Default port for image
+EOF
+```
+
+2. Create sample banana app an expose it as internal service
+```bash
+cat <<EOF | kubectl create -f -
+kind: Pod
+apiVersion: v1
+metadata:
+  name: banana-app
+  labels:
+    app: banana
+spec:
+  containers:
+    - name: banana-app
+      image: hashicorp/http-echo
+      args:
+        - "-text=banana"
+
+---
+
+kind: Service
+apiVersion: v1
+metadata:
+  name: banana-service
+spec:
+  selector:
+    app: banana
+  ports:
+    - port: 5678 # Default port for image
+EOF
+```
+
+3. Create an ingress-object to route traffic between both different application paths.
+```bash
+cat <<EOF | kubectl create -f -
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: example-ingress
+  annotations:
+    ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+  - http:
+      paths:
+        - path: /apple
+          backend:
+            serviceName: apple-service
+            servicePort: 5678
+        - path: /banana
+          backend:
+            serviceName: banana-service
+            servicePort: 5678
+EOF
+```
+
+4. Test if you can hit the apple and banana applications from a single laodbalancer endpoint. we already have trafik ingress controller running so lets use that endpoint 
+
+```bash
+curl -k https://$(kubectl get svc traefik-kubeaddons -n kubeaddons --output jsonpath="{.status.loadBalancer.ingress[*].hostname}")/apple
+```
+Output:
+```
+[centos@ip-10-0-1-61 ~]$ curl -k https://$(kubectl get svc traefik-kubeaddons -n kubeaddons --output jsonpath="{.status.loadBalancer.ingress[*].hostname}")/apple
+apple
+```
+
+```bash
+curl -k https://$(kubectl get svc traefik-kubeaddons -n kubeaddons --output jsonpath="{.status.loadBalancer.ingress[*].hostname}")/banana
+```
+Output:
+```
+[centos@ip-10-0-1-61 ~]$ curl -k https://$(kubectl get svc traefik-kubeaddons -n kubeaddons --output jsonpath="{.status.loadBalancer.ingress[*].hostname}")/banana
+banana
+```
+
+
+## 5. Leverage Network Policies to restrict access
 
 By default, all the pods can access all the services inside and outside the Kubernetes clusters and services exposed to the external world can be accessed by anyone. Kubernetes Network Policies can be used to restrict access.
 
